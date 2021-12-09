@@ -34,6 +34,11 @@ class GraphVisualiser:
             self.data = np.array([x_new, y_new]).T
 
     def _edge_coordinates(self):
+        """ find start and end coordinates of each edge
+
+        Returns:
+            tuple of lists: x, y and z coordinates of edge start and end points
+        """
         if self.edges is None:
             return None, None, None
 
@@ -66,15 +71,41 @@ class GraphVisualiser:
         return x_edges, y_edges, z_edges
 
     def _cast_unit_circle(self, coords):
+        """ cast 1d coordinate data to a unit circle
+
+        Args:
+            coords (list or np.array): 1D coordinate data
+
+        Returns:
+            [tuple of lists]: x and y coordinates of points on the unit circle 
+        """
         theta = self._cast_unit_interval(coords) * 2 * np.pi
         x_new = np.cos(theta)
         y_new = np.sin(theta)
         return list(x_new), list(y_new)
 
     def _cast_unit_interval(self, coords):
+        """ min-max normalisation of numpy array
+
+        Args:
+            coords (list or np.array): data to normalise
+
+        Returns:
+            list or np.array: normalised data
+        """
         return (coords - np.min(coords)) / (np.max(coords) - np.min(coords))
 
     def _trace_graph_edges(self, x_edges, y_edges, z_edges):
+        """ trace graph edges as plotly object
+
+        Args:
+            x_edges (list): start and end edge x coordinates
+            y_edges (list): start and end edge y coordinates
+            z_edges (list): start and end edge z coordinates
+
+        Returns:
+            go.Scatter: Scatter object with edges plotted
+        """
         if self.dimension == '3d':
             trace_edges = go.Scatter3d(x=x_edges,
                                 y=y_edges,
@@ -91,6 +122,11 @@ class GraphVisualiser:
         return trace_edges
 
     def _trace_colored_nodes(self):
+        """ trace coloured nodes as plotly object
+
+        Returns:
+            go.Scatter: Scatter object with nodes plotted
+        """
         if self.dimension == '3d':
             trace_nodes = go.Scatter3d(x=self.data[:,0],
                                        y=self.data[:,1],
@@ -113,6 +149,11 @@ class GraphVisualiser:
         return trace_nodes
 
     def _create_graph_axis(self):
+        """ graph axis for plotly visualisation
+
+        Returns:
+            dict: axis settings 
+        """
         axis = dict(showbackground=False,
                 showline=False,
                 zeroline=False,
@@ -122,6 +163,7 @@ class GraphVisualiser:
         return axis
 
     def _create_graph_layout(self, axis):
+        """ layout for visualisation"""
         if self.draw_bg:
             layout = go.Layout(title=self.title,
                     width=650,
@@ -144,6 +186,11 @@ class GraphVisualiser:
         return layout
     
     def visualise(self):
+        """ visualise graph data
+
+        Returns:
+            fig: plotly figure
+        """
         x_edges, y_edges, z_edges = self._edge_coordinates()
         trace_edges = self._trace_graph_edges(x_edges, y_edges, z_edges)
         trace_nodes = self._trace_colored_nodes()
