@@ -1,5 +1,6 @@
 import numpy as np
 from manifolds.spectral_clustering import SpectralClustering
+from visualise.visualise import GraphVisualiser
 
 class Student:
     
@@ -58,6 +59,19 @@ def test_spectral_clustering():
     X = np.vstack(exam_results)
     true_labels = np.array(preferred_types)
 
-    sc = SpectralClustering(X, norm=True, kernel='rbf', gamma=None, edge_thresh=None)
+    sc = SpectralClustering(X, norm=True, kernel='rbf', gamma=1/10000, edge_thresh=90)
     w, v = sc.eig_decompose()
-    print('success!')
+    edges = sc.edges
+
+    # the first eigenvalue is a maximally smooth constant, can be omitted
+    spectral_matrix = v[:, 1:]
+    # create a reduced spectral vector, only use first 3 spectral components
+    q = spectral_matrix[:, :3]
+
+    # min-max normalise each component of spectral vector to range 0-1
+    colors = (q - q.min(axis=0)) / (q.max(axis=0) - q.min(axis=0)) * 255
+    colors = colors.astype(int)
+
+    gv = GraphVisualiser(q, node_colors=true_labels, edges=edges, dimension='1d')
+    fig = gv.visualise()
+    fig.show()
