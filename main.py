@@ -1,0 +1,3 @@
+from test.test_spectral_clustering import test_spectral_clustering
+
+test_spectral_clustering()
