@@ -3,19 +3,32 @@ import networkx as nx
 import itertools as it
 import scipy
 
+
 class SpectralClustering:
 
-    def __init__(self, X, mapping='lap', kernel='rbf', gamma=None, edge_thresh=None, diffusion_time=None):
+    def __init__(self,
+                 X,
+                 mapping='lap',
+                 kernel='rbf',
+                 gamma=None,
+                 edge_thresh=None,
+                 diffusion_time=None):
         """ initialise spectral clustering
 
         Args:
             X (np.array): 2d numpy array (samples x features)
-            mapping (str, optional): [possible mapping from 
-                ['lap', 'gen_lap', 'norm_lap', 'commute', 'diffuse', 'cum_diffuse']]. Defaults to 'lap'.
-            kernel (str, optional): [kernel to use from possible in ['rbf']]. Defaults to 'rbf'.
-            gamma ([float], optional): [constant value to use in rbf kernel]. Defaults to None.
-            edge_thresh ([float], optional): [threshold value, define edge between two nodes for euclid distances less than this value ]. Defaults to None.
-            diffusion_time ([int], optional): [diffusion time for diffusion mapping]. Defaults to None.
+            mapping (str, optional): [possible mapping from
+                ['lap', 'gen_lap', 'norm_lap', 'commute', 'diffuse',
+                'cum_diffuse']]. Defaults to 'lap'.
+            kernel (str, optional): [kernel to use from possible
+                in ['rbf']]. Defaults to 'rbf'.
+            gamma ([float], optional): [constant value to use
+                 in rbf kernel]. Defaults to None.
+            edge_thresh ([float], optional): [threshold value, define
+                 edge between two nodes for euclid distances less than
+                 this value ]. Defaults to None.
+            diffusion_time ([int], optional): [diffusion time for
+                diffusion mapping]. Defaults to None.
         """
         self._check_input(mapping, diffusion_time)
         self.X = X
@@ -38,9 +51,12 @@ class SpectralClustering:
             mapping (str): possible mapping value
             diffusion_time (int): diffusion time value if mapping is diffuse
         """
-        assert mapping in ['lap', 'gen_lap', 'norm_lap', 'commute', 'diffuse', 'cum_diffuse'], 'Please enter a valid mapping argument.'
+        assert mapping in ['lap', 'gen_lap', 'norm_lap',
+                           'commute', 'diffuse', 'cum_diffuse'], \
+            'Please enter a valid mapping argument.'
         if mapping == 'diffuse':
-            assert type(diffusion_time) == int, 'Diffusion time must be entered and be an integer.'
+            assert type(diffusion_time) == int, \
+                'Diffusion time must be entered and be an integer.'
             assert diffusion_time > 0, 'Diffusion time must be positive.'
 
     def _symmetrise(self, arr):
@@ -52,7 +68,7 @@ class SpectralClustering:
 
         Diagonal values are left untouched.
 
-        a -- square NumPy array, such that a_ij = 0 or a_ji = 0, 
+        a -- square NumPy array, such that a_ij = 0 or a_ji = 0,
         for i != j.
 
         Args:
@@ -76,8 +92,9 @@ class SpectralClustering:
 
         self.pairs = self._find_pairs()
 
+        # compute empty weight matrix
         total_samples = self.X.shape[0]
-        W = np.zeros(shape=(total_samples,total_samples))  # compute empty weight matrix
+        W = np.zeros(shape=(total_samples, total_samples))
         ds = []
         for pair in self.pairs:
             id_A = pair[0]
@@ -109,7 +126,7 @@ class SpectralClustering:
         if d < self.edge_thresh:
             return np.exp(-1 * self.gamma * d**2)
         return 0.0
-        
+
     def _get_adjacency(self):
         """ find the adjacency matrix for graph
 
@@ -126,7 +143,7 @@ class SpectralClustering:
         """
         # create the weighted graph using networkX
         return nx.from_numpy_matrix(self.W)
-    
+
     def _get_edges(self):
         """ edges of graph
 
@@ -143,22 +160,28 @@ class SpectralClustering:
         """
         degree_list = [val for (node, val) in self.graph.degree()]
         return np.identity(len(degree_list)) * degree_list
-    
+
     def _get_laplacian(self, norm=False):
         """ compute graph Laplacian
 
         Args:
-            norm (bool, optional): whether to use standard or 
+            norm (bool, optional): whether to use standard or
                 normalised graph Laplacian matrix. Defaults to False.
 
         Returns:
             np.array: graph Laplacian matrix
         """
         if norm:
-            return nx.linalg.laplacianmatrix.normalized_laplacian_matrix(self.graph).toarray()
+            return nx.linalg.laplacianmatrix.\
+                normalized_laplacian_matrix(self.graph).toarray()
         return self.D - self.A
 
     def _setup_eig_equation(self):
+        """ setup the right hand side of eigenvalue equation for mapping method
+
+        Returns:
+            np.array: matrix to be used on the right hand side of equation
+        """
         if self.mapping in ['lap', 'norm_lap', 'commute']:
             eig_right = None
         else:
@@ -166,6 +189,15 @@ class SpectralClustering:
         return eig_right
 
     def _scale_eigvectors(self, w, v):
+        """ scale eigenvectors for mapping method
+
+        Args:
+            w (np.array): 1D array of eigenvalues
+            v (np.array): ND array of eigenvectors
+
+        Returns:
+            np.array: ND array of scaled eigenvectors
+        """
         if self.mapping == 'commute':
             return (v / np.sqrt(w)).real
         elif self.mapping == 'diffuse':
@@ -186,7 +218,8 @@ class SpectralClustering:
         # compute eigenvalues and eigenvectors, w and v, respectively
         w, v = scipy.linalg.eig(a=self.L, b=eig_rhs)
 
-        # the first eigenvalue is a maximally smooth constant, can omit first of both 
+        # the first eigenvalue is a maximally smooth constant
+        # can omit first of both
         w = w[1:]
         v = v[:, 1:]
 
