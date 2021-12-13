@@ -1,31 +1,47 @@
 import numpy as np
 import networkx as nx
 import itertools as it
-
+import scipy
 
 class SpectralClustering:
 
-    def __init__(self, X, norm=True, kernel='rbf', gamma=None, edge_thresh=None):
-        """initalise class
+    def __init__(self, X, mapping='lap', kernel='rbf', gamma=None, edge_thresh=None, diffusion_time=None):
+        """ initialise spectral clustering
 
         Args:
             X (np.array): 2d numpy array (samples x features)
-            norm (bool): to use normalised graph Laplacian in spectral clustering
-            kernel (str): kernel to use from possible in ['rbf']
-            gamma (float): constant value to use in rbf kernel
-            edge_thresh (float): threshold value, define edge between 
-                two nodes for euclid distances less than this value 
+            mapping (str, optional): [possible mapping from 
+                ['lap', 'gen_lap', 'norm_lap', 'commute', 'diffuse', 'cum_diffuse']]. Defaults to 'lap'.
+            kernel (str, optional): [kernel to use from possible in ['rbf']]. Defaults to 'rbf'.
+            gamma ([float], optional): [constant value to use in rbf kernel]. Defaults to None.
+            edge_thresh ([float], optional): [threshold value, define edge between two nodes for euclid distances less than this value ]. Defaults to None.
+            diffusion_time ([int], optional): [diffusion time for diffusion mapping]. Defaults to None.
         """
+        self._check_input(mapping, diffusion_time)
         self.X = X
+        self.mapping = mapping
         self.kernel = kernel
         self.gamma = gamma
         self.edge_thresh = edge_thresh
+        self.diffusion_time = diffusion_time
         self.W = self._construct_weight_matrix()
         self.A = self._get_adjacency()
         self.graph = self._create_graph()
         self.edges = self._get_edges()
         self.D = self._get_degree_matrix()
-        self.L = self._get_laplacian(norm=norm)
+        self.L = self._get_laplacian(norm=(self.mapping == 'norm_lap'))
+
+    def _check_input(self, mapping, diffusion_time):
+        """check input of constructor
+
+        Args:
+            mapping (str): possible mapping value
+            diffusion_time (int): diffusion time value if mapping is diffuse
+        """
+        assert mapping in ['lap', 'gen_lap', 'norm_lap', 'commute', 'diffuse', 'cum_diffuse'], 'Please enter a valid mapping argument.'
+        if mapping == 'diffuse':
+            assert type(diffusion_time) == int, 'Diffusion time must be entered and be an integer.'
+            assert diffusion_time > 0, 'Diffusion time must be positive.'
 
     def _symmetrise(self, arr):
         """ Return a symmetrised version of numpy array, arr.
@@ -142,16 +158,38 @@ class SpectralClustering:
             return nx.linalg.laplacianmatrix.normalized_laplacian_matrix(self.graph).toarray()
         return self.D - self.A
 
+    def _setup_eig_equation(self):
+        if self.mapping in ['lap', 'norm_lap', 'commute']:
+            eig_right = None
+        else:
+            eig_right = self.D
+        return eig_right
+
+    def _scale_eigvectors(self, w, v):
+        if self.mapping == 'commute':
+            return (v / np.sqrt(w)).real
+        elif self.mapping == 'diffuse':
+            return (v * (1-w)**self.diffusion_time).real
+        elif self.mapping == 'cum_diffuse':
+            return (v / w).real
+        return v
+
     def eig_decompose(self):
         """ compute eigenvalues and eigenvectors of graph Laplacian
 
         Returns:
             tuple of np.array: (eigenvectors, eigenvalues)
         """
+        # get the rhs of the eigenvalue equation for mapping method
+        eig_rhs = self._setup_eig_equation()
+
         # compute eigenvalues and eigenvectors, w and v, respectively
-        w, v = np.linalg.eig(self.L)
+        w, v = scipy.linalg.eig(a=self.L, b=eig_rhs)
 
         # the first eigenvalue is a maximally smooth constant, can omit first of both 
         w = w[1:]
         v = v[:, 1:]
-        return w, v
+
+        # scale the eigenvectors for mapping method
+        v_scaled = self._scale_eigvectors(w, v)
+        return w, v_scaled

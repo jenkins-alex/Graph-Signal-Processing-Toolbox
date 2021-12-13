@@ -6,14 +6,14 @@ from manifolds.spectral_clustering import SpectralClustering
 class GraphVisualiser:
 
     def __init__(self, data, edges=None, node_colors='aliceblue', 
-                 edge_colors='azure', dimension='3d', draw_bg=False, title=""):
+                 edge_colors='black', dimension='3d', draw_bg=False, title=""):
         """ constructor for graph visualiser
 
         Args:
             data (np.array): (nodes x coordinates) node coordinates
             edges (nx.EdgeView): [graph edges]. Defaults to None.
             node_colors (np.array, optional): [colors to assign to nodes (nodes x 1)]. Defaults to 'aliceblue'.
-            edge_colors (color, optional): [colors to assign to edges]. Defaults to 'azure'.
+            edge_colors (color, optional): [colors to assign to edges]. Defaults to 'black'.
             dimension (str, optional): [dimension for visualisation ['1d', '2d', '3d']]. Defaults to '3d'.
             draw_bg (bool, optional): [whether to draw background axes for plot]. Defaults to False.
             title (str, option): [title for plot]. Defaults to empty string.

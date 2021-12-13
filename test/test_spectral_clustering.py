@@ -59,7 +59,7 @@ def test_spectral_clustering():
     X = np.vstack(exam_results)
     true_labels = np.array(preferred_types)
 
-    sc = SpectralClustering(X, norm=True, kernel='rbf', gamma=1/10000, edge_thresh=90)
+    sc = SpectralClustering(X, mapping='cum_diffuse', kernel='rbf', gamma=1/10000, edge_thresh=90)
     w, v = sc.eig_decompose()
     edges = sc.edges
 
@@ -72,6 +72,6 @@ def test_spectral_clustering():
     colors = (q - q.min(axis=0)) / (q.max(axis=0) - q.min(axis=0)) * 255
     colors = colors.astype(int)
 
-    gv = GraphVisualiser(q, node_colors=true_labels, edges=edges, dimension='1d')
+    gv = GraphVisualiser(q, node_colors=true_labels, edges=edges, dimension='3d')
     fig = gv.visualise()
     fig.show()
