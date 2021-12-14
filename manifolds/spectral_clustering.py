@@ -8,6 +8,7 @@ class SpectralClustering:
 
     def __init__(self,
                  X,
+                 W=None,
                  mapping='lap',
                  kernel='rbf',
                  gamma=None,
@@ -17,6 +18,8 @@ class SpectralClustering:
 
         Args:
             X (np.array): 2d numpy array (samples x features)
+            W (np.array, optional): [2d numpy array of weight matrix].
+                Defaults to None.
             mapping (str, optional): [possible mapping from
                 ['lap', 'gen_lap', 'norm_lap', 'commute', 'diffuse',
                 'cum_diffuse']]. Defaults to 'lap'.
@@ -37,7 +40,11 @@ class SpectralClustering:
         self.gamma = gamma
         self.edge_thresh = edge_thresh
         self.diffusion_time = diffusion_time
-        self.W = self._construct_weight_matrix()
+        try:
+            W.shape
+            self.W = W
+        except AttributeError:
+            self.W = self._construct_weight_matrix()
         self.A = self._get_adjacency()
         self.graph = self._create_graph()
         self.edges = self._get_edges()
@@ -174,7 +181,7 @@ class SpectralClustering:
         if norm:
             return nx.linalg.laplacianmatrix.\
                 normalized_laplacian_matrix(self.graph).toarray()
-        return self.D - self.A
+        return self.D - self.W
 
     def _setup_eig_equation(self):
         """ setup the right hand side of eigenvalue equation for mapping method
