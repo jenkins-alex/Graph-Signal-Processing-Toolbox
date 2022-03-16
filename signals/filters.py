@@ -28,7 +28,7 @@ class PolynomialGraphFilter:
         terms = []
         terms.append(x)  # add the 0th term - data remains unchanged
         for k in range(1, self.K+1):
-            term = np.matmul(gso.power(k), x)
+            term = np.dot(gso.power(k), x)
             terms.append(term)
         term_stack = np.hstack(terms)
         
@@ -37,5 +37,4 @@ class PolynomialGraphFilter:
             return term_stack
 
         # return weighted filter terms
-        hs = np.repeat(self.h, int(len(term_stack)/len(self.h)))
-        return np.multiply(hs, term_stack)
+        return np.reshape(self.h, (-1, 1)) * term_stack
