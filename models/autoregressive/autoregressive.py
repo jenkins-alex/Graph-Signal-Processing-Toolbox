@@ -12,7 +12,7 @@ from scipy.optimize import minimize
 class GraphAR:
     """autoregressive model using graph filtering
     """
-    def __init__(self, X, y, N, P, alpha, mu, zeta, gamma=None, init_type='rand', concat=None):
+    def __init__(self, X, y, N, P, alpha, mu, zeta, gamma=None, init_type='rand'):
         """
         Batch vertex-time graph auto-regressive model, as seen in, https://arxiv.org/abs/2003.05729.
         Here the graph shift operator and the graph filter coefficients are learnt from data.
@@ -29,8 +29,6 @@ class GraphAR:
             gamma (float, optional): Regularisation strength for commutivity term.
                 Defaults to None (no commutivity term).
             init_type (str, optional): Weight initalisiation 'rand' or 'zeros'. Defaults to 'rand'.
-            concat (str, optional): Method to use for many-to-one prediction merging, 'sum' or 'mean'. 
-                Defaults to None (many-to-many prediction).
         """
         self.X = X  # features (P previous time steps) PxMxN where M is batch size
         self.y = y  # labels MxN
@@ -57,9 +55,6 @@ class GraphAR:
             self.beta = np.zeros(shape=(P, N, N))  # initialise parameters to zeros
             self.W = np.zeros(shape=(N, N))  # initialise the learnt GSO to zeros
             self.hs = np.zeros(self.M)  # initialise the learnt filter coefficients
-
-        # concatonation method for predictions
-        self.concat = concat
         
     def fit(self, method='BFGS', max_iter=1):
         """ learn parameters of the graph auto-regression model
