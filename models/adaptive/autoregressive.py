@@ -8,9 +8,9 @@ from scipy.optimize import minimize
 
 class GraphAR:
 
-    def __init__(self, X, y, N, P, alpha, mu, gamma=None, smoothness_reg=None, init_type='rand', concat=None):
+    def __init__(self, X, y, N, P, alpha, mu, gamma=None, init_type='rand', concat=None):
         """
-        'Optimal' vertex-time graph auto-regressive model, as seen in, https://arxiv.org/abs/2003.05729.
+        Batch vertex-time graph auto-regressive model, as seen in, https://arxiv.org/abs/2003.05729.
         Here the graph shift operator and the graph filter coefficients are learnt from data.
         The optimal coefficients are found for the whole dataset. This model is not adaptive.
 
@@ -23,8 +23,6 @@ class GraphAR:
             mu (np.array): Vector of l1 regularisation strengths (P).
             gamma (float, optional): Regularisation strength for commutivity term.
                 Defaults to None (no commutivity term).
-            smoothness_reg (float, optional): Regularisation strength for signal smoothness.
-                Defaults to None (no smoothness penalty).
             init_type (str, optional): Weight initalisiation 'rand' or 'zeros'. Defaults to 'rand'.
             concat (str, optional): Method to use for many-to-one prediction merging, 'sum' or 'mean'. 
                 Defaults to None (many-to-many prediction).
@@ -43,12 +41,7 @@ class GraphAR:
             self.add_commutivity_term = False
         else:
             self.add_commutivity_term = True
-            
-        if self.smoothness_reg is None:
-            self.add_smoothness_term = False
-        else:
-            self.add_smoothness_term = True
-        
+
         # initialise the learnable filter weights
         if init_type == 'rand':
             self.beta = np.random.rand(P, N, N)  # initialise filter model parameters
@@ -81,10 +74,6 @@ class GraphAR:
         """
         # calculate graph filter terms
         prediction = np.matmul(self.beta, np.swapaxes(X, 1, 2)).sum(axis=0).T
-        if self.concat == 'mean':
-            return np.mean(prediction, axis=-1).reshape(prediction.shape[0], 1)
-        if self.concat == 'sum':
-            return np.sum(prediction, axis=-1).reshape(prediction.shape[0], 1)
         return prediction
     
     def get_gso(self):
@@ -160,17 +149,6 @@ class GraphAR:
                         continue
                     comm_terms.append(np.linalg.norm(arr[i,j] - arr[j,i], 'fro')**2)
             loss += self.gamma * np.sum(comm_terms)
-            
-        if self.add_smoothness_term:
-            # smooth each of the auto-regressive graph signals using the learnt graph filter.
-            # the first learnt graph filter is proportional to the GSO, we can use this to
-            # employ smoothness for all data points
-            
-            # graph smoothness quantified using the graph total variation forumlation,
-            # https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7032244
-            shifted_data = np.matmul(self.beta[0], self.X[0, :, :].T).T
-            loss += .5 * self.smoothness_reg * np.linalg.norm((self.X[0] - shifted_data).ravel(), ord=2)**2
-            
         print(loss)
         return loss
 
