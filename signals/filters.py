@@ -28,7 +28,10 @@ class PolynomialGraphFilter:
         terms = []
         terms.append(x)  # add the 0th term - data remains unchanged
         for k in range(1, self.K+1):
-            term = np.dot(gso.power(k), x.T).T
+            if len(x.shape) == 1:
+                term = np.dot(gso.power(k), x.T).T
+            else:
+                term = np.matmul(gso.power(k), x)
             terms.append(term)
         term_stack = np.stack(terms)
         

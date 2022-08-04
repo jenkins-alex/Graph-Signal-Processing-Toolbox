@@ -2,7 +2,7 @@
 """
 import numpy as np
 from abc import ABC, abstractmethod
-
+from signals.filters import PolynomialGraphFilter
 
 class SimulatedGraphProcess(ABC):
     """Abstract base class for simulated graph process
@@ -10,17 +10,17 @@ class SimulatedGraphProcess(ABC):
     Args:
         ABC (object): class of abstract base class
     """
-    def __init__(self, weight_matrix, process_length, order_graph_filter):
+    def __init__(self, weight_matrix, process_length, set_seed):
         """
 
         Args:
             weight_matrix (np.array): NxN matrix where N is number of nodes in graph
             process_length (int): number of time steps to simulate for process
-            order_graph_filter (int): number of terms to use in polynomial graph filter
+            set_seed (bool): set numpy random seed.
         """
         self.weight_matrix = weight_matrix
         self.process_length = process_length
-        self.order_graph_filter = order_graph_filter
+        self.set_seed = set_seed
 
     @property
     def get_weight_matrix(self):
@@ -58,9 +58,21 @@ class SimulatedGraphProcess(ABC):
 
 class GraphAR(SimulatedGraphProcess):
 
-    def __init__(self, weight_matrix, process_length, order_graph_filter, auto_reg_terms):
-        super().__init__(weight_matrix, process_length, order_graph_filter)
-        self.auto_reg_terms = auto_reg_terms
+    def __init__(self, weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients=None):
+        super().__init__(weight_matrix, process_length, set_seed)
+        """initialisation of graph AR base class
+
+        Args:
+            weight_matrix (np.array): weight matrix
+            process_length (int): number of time steps to simulate
+            set_seed (bool): set numpy random seed.
+            auto_reg_terms (int): number of AR terms to use, referred to as P
+            filter_coefficients (np.array, optional): P*(P+1) vector. Defaults to None.
+        """
+        self.auto_reg_terms = auto_reg_terms  # number of AR terms to use in process
+        self.filter_coefficients = self.initialise_filter_coefficients(filter_coefficients)
+        if self.set_seed:
+            np.random.seed(42)
 
     @abstractmethod
     def graph_process(self, data):
@@ -98,22 +110,52 @@ class GraphAR(SimulatedGraphProcess):
             auto_reg_data[0] = output  # add output as new time step
         return outputs
 
+    @property
+    def initialise_filter_coefficients(self, filter_coefficients):
+        """randomly and sparsely initialise filter coefficients if not provided
+        """
+        # set the filter coefficients as random and sparse if not provided
+        if filter_coefficients is None:
+            filter_coefficients = np.zeros(self.auto_reg_terms*(self.auto_reg_terms+1))
+            indices = np.random.choice(
+                np.arange(filter_coefficients.size),
+                replace=False,
+                size=int(filter_coefficients.size * 0.2))
+            filter_coefficients[indices] = 1  # set 20% of filter coefficients to 1, rest are zero
+            self.filter_coefficients = np.random.rand(self.auto_reg_terms*(self.auto_reg_terms+1))
+        else:
+            self.filter_coefficients = filter_coefficients  # use given values
+
+
 class GraphPureAR(GraphAR):
-    """simulate data from a purely auto-regressive graph process
+    """simulate data from a purely auto-regressive causal graph process
 
     Args:
-        SimulatedGraphProcess (object): abstract base class for graph process
+        GraphAR (object): abstract base class for graph AR process
     """
-    def __init__(self, weight_matrix, process_length, order_graph_filter, auto_reg_terms):
-        super().__init__(weight_matrix, process_length, order_graph_filter, auto_reg_terms)
+    def __init__(self, weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients=None):
+        super().__init__(weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients)
 
     def graph_process(self, data):
         """definition of graph process to be used for simulation
 
         Args:
-            data (np.array): PxNxN where P is the number of auto reg terms, N is number of nodes
+            data (np.array): PxNxN where P is the number of auto reg terms, 
+                N is number of nodes
+
+        Returns:
+            np.array: NxN numpy array containing outputs at next time-step
         """
-        pass
+        filtered_terms = []
+        for i in range(1, self.auto_reg_terms+1):
+            pgf = PolynomialGraphFilter(self.W, i)
+            filtered_terms.append(pgf.filt(data[i]))
+        term_stack = np.vstack(filtered_terms)
+
+        # weight terms using coefficients and calculate sum
+        weighted_terms = np.reshape(self.filter_coefficients, (-1, 1, 1)) * term_stack
+        predictions = np.sum(weighted_terms, axis=0)
+        return predictions
 
 
 class GraphARMA(GraphAR):
@@ -123,6 +165,7 @@ class GraphARMA(GraphAR):
         SimulatedGraphProcess (object): abstract base class for graph process
     """
     pass
+
 
 class GraphARIMA(GraphAR):
     """simulate data from an ARIMA process on graph
