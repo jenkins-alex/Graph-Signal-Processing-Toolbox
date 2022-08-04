@@ -7,8 +7,9 @@ from signals.graph_shift_operators import GraphShiftOperator
 from scipy.optimize import minimize
 
 class GraphAR:
-
-    def __init__(self, X, y, N, P, alpha, mu, gamma=None, init_type='rand', concat=None):
+    """autoregressive model using graph filtering
+    """
+    def __init__(self, X, y, N, P, alpha, mu, zeta, gamma=None, init_type='rand', concat=None):
         """
         Batch vertex-time graph auto-regressive model, as seen in, https://arxiv.org/abs/2003.05729.
         Here the graph shift operator and the graph filter coefficients are learnt from data.
@@ -21,6 +22,7 @@ class GraphAR:
             P (int): Number of auto-regressive terms.
             alpha (int): Sample weighting for each time-step [0, 1].
             mu (np.array): Vector of l1 regularisation strengths (P).
+            zeta (float): Regularisation strength for sparsity of learnt filter coefficients.
             gamma (float, optional): Regularisation strength for commutivity term.
                 Defaults to None (no commutivity term).
             init_type (str, optional): Weight initalisiation 'rand' or 'zeros'. Defaults to 'rand'.
@@ -34,7 +36,8 @@ class GraphAR:
         self.alpha = alpha  # int weighting of time-steps [0, 1]
         self.mu = mu  # vector of l1 regularisation strengths of size P
         self.gamma = gamma  # float value for regularisation on commutivity term
-        
+        self.zeta = zeta  # regularisation strength for sparisty of learnt graph filter coefs
+
         # specify if commutativity term should exist in loss function
         if self.gamma is None:
             self.add_commutivity_term = False
@@ -44,9 +47,13 @@ class GraphAR:
         # initialise the learnable filter weights
         if init_type == 'rand':
             self.beta = np.random.rand(P, N, N)  # initialise filter model parameters
+            self.W = np.random.rand(N, N)  # initialise the learnt GSO
+            self.hs = np.random.rand(int(P+1*P))  # initialise the learnt filter coefficients
         else:
-            self.beta = np.zeros(shape=(P, N, N))  # initialise parameters to zero
-        
+            self.beta = np.zeros(shape=(P, N, N))  # initialise parameters to zeros
+            self.W = np.zeros(shape=(N, N))  # initialise the learnt GSO to zeros
+            self.hs = np.zeros(int(P+1*P))  # initialise the learnt filter coefficients
+
         # concatonation method for predictions
         self.concat = concat
         
@@ -58,9 +65,8 @@ class GraphAR:
             max_iter (int, optional): Max iterations to use. Defaults to 1.
         """
         self._learn_filter(method, max_iter)
-        #self._learn_gso(X, y)
-        #self._learn_filter_coefs(X, y)
-        pass
+        self._learn_gso(method, max_iter)
+        self._learn_filter_coefs(method, max_iter)
     
     def predict(self, X):
         """ predict the output for input features X
@@ -75,7 +81,7 @@ class GraphAR:
         prediction = np.matmul(self.beta, np.swapaxes(X, 1, 2)).sum(axis=0).T
         return prediction
     
-    def get_gso(self):
+    def get_approximate_gso(self):
         """ approximate the graph shift operator (GSO) as the first component of the 
         learnt weights (when considering a polynomial graph filter, the first component
         of the learnt graph filter is proportional to the GSO)
@@ -105,7 +111,31 @@ class GraphAR:
                        self.beta,
                        method=method,
                        options={'maxiter': max_iter})
-    
+
+    def _learn_gso(self, method, max_iter):
+        """learn gso using gradient descent
+
+        Args:
+            method (str): optimisation method to use.
+            max_iter (int): Max iterations to use.
+        """
+        res = minimize(self._gso_loss_function,
+                       self.W,
+                       method=method,
+                       options={'maxiter': max_iter})
+
+    def _learn_filter_coefs(self, method, max_iter):
+        """learn filter coefficients using gradient descent
+
+        Args:
+            method (str): optimisation method to use.
+            max_iter (int): Max iterations to use.
+        """
+        res = minimize(self._coef_loss_function,
+                       self.hs,
+                       method=method,
+                       options={'maxiter': max_iter})
+
     def _filter_loss_function(self, beta):
         """
         The loss function for the graph auto-regressive model. Corresponds to equation 11
@@ -148,6 +178,90 @@ class GraphAR:
                         continue
                     comm_terms.append(np.linalg.norm(arr[i,j] - arr[j,i], 'fro')**2)
             loss += self.gamma * np.sum(comm_terms)
+        print(loss)
+        return loss
+
+    def _gso_loss_function(self, W):
+        """
+        The loss function for learning the GSO using the pre-trained graph filters. Corresponds to equation 12
+        in https://arxiv.org/abs/2003.05729
+
+        Args:
+            W (np.array): Learnable weights for graph shift operator (NxN)
+
+        Returns:
+            float: value of loss at given iteration 
+        """
+        # update weights
+        self.W = W.reshape(self.N, self.N)
+        
+        # calculate MSE for each time
+        first_graph_filter = self.get_approximate_gso()
+        MSE_term = np.linalg.norm(first_graph_filter-self.W, ord=2, axis=1)**2
+        loss = .5 * MSE_term
+        
+        # add in the sparsity term for the gso
+        l1_norms = np.linalg.norm(self.W, ord=1, axis=(0,1))
+        l1_loss = self.mu[0] * l1_norms
+        loss += l1_loss
+        
+        # add in the commutivity term
+        arr = np.dot(self.beta, self.beta).reshape(self.P, self.P, self.N, self.N)
+        comm_terms = []
+        for i in range(1, self.P):
+            comm_terms.append(np.linalg.norm(W - self.beta[i], 'fro')**2)
+        loss += self.gamma * np.sum(comm_terms)
+        print(loss)
+        return loss
+
+    def predict_with_filter_coefs(self, X):
+        """predict the next time-step using learnt GSO and filter coefficients
+
+        Args:
+            X (np.array): input features
+        Returns:
+            np.array: vector of outputs for given inputs 
+        """
+        # calculate the graph filtered data
+        pgf = PolynomialGraphFilter(self.W, self.P)
+        filtered_terms = []
+        for i in range(X.shape[0]):
+            filtered_terms.append(pgf.filt(X[i]))
+        term_stack = np.vstack(filtered_terms)
+
+        # weight terms using coefficients and calculate sum
+        weighted_terms = np.reshape(self.hs, (-1, 1, 1)) * term_stack
+        predictions = np.sum(weighted_terms, axis=0)
+        return predictions
+
+    def _coef_loss_function(self, hs):
+        """
+        The loss function for learning the graph filter coefficients using the learnt GSO. 
+        Corresponds to equation 13 in https://arxiv.org/abs/2003.05729
+
+        Args:
+            hs (np.array): Learnable weights for graph filter coefficients (P+1)
+
+        Returns:
+            float: value of loss at given iteration 
+        """
+        # update weights
+        self.hs = hs.reshape(self.P+1)
+
+        # calculate MSE for each time
+        MSE_term = np.linalg.norm(self.y-self.predict_with_filter_coefs(self.X), ord=2, axis=1)**2
+
+        # sum the MSE over all time-steps
+        powers = np.array([self.y.shape[0] - i for i in range(0, self.y.shape[0])])
+        alphas = np.array([self.alpha] * self.y.shape[0])
+        powers = np.power(alphas, powers)
+        weighted_mses = np.multiply(powers, MSE_term)
+        loss = .5 * np.sum(weighted_mses)
+
+        # add in the sparsity term for the parameters
+        l1_norms = np.linalg.norm(self.hs, ord=1)
+        l1_loss = self.zeta * l1_norms
+        loss += l1_loss
         print(loss)
         return loss
 
