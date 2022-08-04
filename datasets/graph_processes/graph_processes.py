@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """simulated data from different graph processes using arbitrarily defined graphs
 """
 import numpy as np
@@ -21,6 +23,8 @@ class SimulatedGraphProcess(ABC):
         self.weight_matrix = weight_matrix
         self.process_length = process_length
         self.set_seed = set_seed
+        if self.set_seed:
+            np.random.seed(42)
 
     @property
     def get_weight_matrix(self):
@@ -70,9 +74,7 @@ class GraphAR(SimulatedGraphProcess):
             filter_coefficients (np.array, optional): P*(P+1) vector. Defaults to None.
         """
         self.auto_reg_terms = auto_reg_terms  # number of AR terms to use in process
-        self.filter_coefficients = self.initialise_filter_coefficients(filter_coefficients)
-        if self.set_seed:
-            np.random.seed(42)
+        self.initialise_filter_coefficients(filter_coefficients)
 
     @abstractmethod
     def graph_process(self, data):
@@ -82,6 +84,14 @@ class GraphAR(SimulatedGraphProcess):
             data (np.array): the data to process using graph process
         """
         pass
+
+    @property
+    def get_filter_coefs(self):
+        """
+        Returns:
+            int: np.array the filter coefficients used in simulation
+        """
+        return self.filter_coefficients
 
     @property
     def simulate_data_from_initial(self):
@@ -100,31 +110,34 @@ class GraphAR(SimulatedGraphProcess):
         auto_reg_data[0] = initial_data
 
         # simulation
+        # TODO: vectorise simulated data curation
         for i in range(1, self.process_length):
             # get data at next time-step 
-            output = self.graph_process(auto_reg_data)  # NxN
+            output = self.graph_process(auto_reg_data) + np.random.normal(np.zeros(N), np.eye(N)) # NxN
             outputs[i] = output  # save in container
 
             # update data for AR
             auto_reg_data = np.roll(auto_reg_data, 1, axis=0)  # roll data back 1 step in time
-            auto_reg_data[0] = output  # add output as new time step
-        return outputs
+            auto_reg_data[0] = output # add output as new time step
 
-    @property
+        # return converted output as T x N array
+        return outputs.sum(axis=1)
+
     def initialise_filter_coefficients(self, filter_coefficients):
         """randomly and sparsely initialise filter coefficients if not provided
         """
         # set the filter coefficients as random and sparse if not provided
         if filter_coefficients is None:
-            filter_coefficients = np.zeros(self.auto_reg_terms*(self.auto_reg_terms+1))
+            M = int(self.auto_reg_terms * (self.auto_reg_terms+3) / 2)  # number of filter coefficients
+            new_filter_coefficients = np.zeros(M)
             indices = np.random.choice(
-                np.arange(filter_coefficients.size),
+                np.arange(new_filter_coefficients.size),
                 replace=False,
-                size=int(filter_coefficients.size * 0.2))
-            filter_coefficients[indices] = 1  # set 20% of filter coefficients to 1, rest are zero
-            self.filter_coefficients = np.random.rand(self.auto_reg_terms*(self.auto_reg_terms+1))
+                size=int(new_filter_coefficients.size * 0.2))
+            new_filter_coefficients[indices] = 1  # set 20% of filter coefficients to 1, rest are zero
+            self.filter_coefficients = new_filter_coefficients
         else:
-            self.filter_coefficients = filter_coefficients  # use given values
+            self.filter_coefficients = filter_coefficients
 
 
 class GraphPureAR(GraphAR):
@@ -133,7 +146,7 @@ class GraphPureAR(GraphAR):
     Args:
         GraphAR (object): abstract base class for graph AR process
     """
-    def __init__(self, weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients=None):
+    def __init__(self, weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients):
         super().__init__(weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients)
 
     def graph_process(self, data):
@@ -147,9 +160,10 @@ class GraphPureAR(GraphAR):
             np.array: NxN numpy array containing outputs at next time-step
         """
         filtered_terms = []
+        # TODO: vectorise?
         for i in range(1, self.auto_reg_terms+1):
-            pgf = PolynomialGraphFilter(self.W, i)
-            filtered_terms.append(pgf.filt(data[i]))
+            pgf = PolynomialGraphFilter(self.weight_matrix, i)
+            filtered_terms.append(pgf.filt(data[i-1]))
         term_stack = np.vstack(filtered_terms)
 
         # weight terms using coefficients and calculate sum

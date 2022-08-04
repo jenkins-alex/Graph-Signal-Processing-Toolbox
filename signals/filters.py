@@ -1,5 +1,5 @@
 import numpy as np
-from graph_shift_operators import GraphShiftOperator
+from signals.graph_shift_operators import GraphShiftOperator
 
 class PolynomialGraphFilter:
     def __init__(self, S, K, h=None):

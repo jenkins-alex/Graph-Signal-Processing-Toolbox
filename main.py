@@ -1,3 +1,6 @@
-from test.test_spectral_clustering import test_spectral_clustering
+from test.test_graph_processes import test_pure_AR
 
-test_spectral_clustering()
+if __name__ == '__main__':
+    #test_spectral_clustering()
+    test_pure_AR()
+
