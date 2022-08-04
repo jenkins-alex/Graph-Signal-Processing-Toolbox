@@ -34,7 +34,6 @@ class GraphAR:
         self.alpha = alpha  # int weighting of time-steps [0, 1]
         self.mu = mu  # vector of l1 regularisation strengths of size P
         self.gamma = gamma  # float value for regularisation on commutivity term
-        self.smoothness_reg = smoothness_reg  # float value for smoothness regularisation of graph signal
         
         # specify if commutativity term should exist in loss function
         if self.gamma is None:
