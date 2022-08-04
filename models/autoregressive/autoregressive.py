@@ -34,7 +34,7 @@ class GraphAR:
         self.y = y  # labels MxN
         self.N = N  # number of nodes in graph
         self.P = P  # order of graph filter
-        self.M = P*(P+3)/2 # number of filter coefficients
+        self.M = int(P*(P+3)/2) # number of filter coefficients
         self.alpha = alpha  # int weighting of time-steps [0, 1]
         self.mu = mu  # vector of l1 regularisation strengths of size P
         self.gamma = gamma  # float value for regularisation on commutivity term
@@ -63,8 +63,11 @@ class GraphAR:
             method (str, optional): Optimizer to use. Defaults to 'BFGS'.
             max_iter (int, optional): Max iterations to use. Defaults to 1.
         """
+        print('(1/3) Learning graph filters from data...')
         self._learn_filter(method, max_iter)
+        print('(2/3) Learning graph shift operator from graph filters...')
         self._learn_gso(method, max_iter)
+        print('(3/3) Learning graph filter coefficients from data...')
         self._learn_filter_coefs(method, max_iter)
     
     def predict(self, X):
@@ -196,7 +199,7 @@ class GraphAR:
         
         # calculate MSE for each time
         first_graph_filter = self.get_approximate_gso()
-        MSE_term = np.linalg.norm(first_graph_filter-self.W, ord=2, axis=1)**2
+        MSE_term = np.linalg.norm(first_graph_filter-self.W, ord=2, axis=(0,1))**2
         loss = .5 * MSE_term
         
         # add in the sparsity term for the gso
@@ -208,7 +211,7 @@ class GraphAR:
         arr = np.dot(self.beta, self.beta).reshape(self.P, self.P, self.N, self.N)
         comm_terms = []
         for i in range(1, self.P):
-            comm_terms.append(np.linalg.norm(W - self.beta[i], 'fro')**2)
+            comm_terms.append(np.linalg.norm(self.W - self.beta[i], 'fro')**2)
         loss += self.gamma * np.sum(comm_terms)
         print(loss)
         return loss
@@ -223,15 +226,15 @@ class GraphAR:
         """
         # calculate the graph filtered data
         filtered_terms = []
-        for i in range(self.P):
+        for i in range(1, self.P+1):
             pgf = PolynomialGraphFilter(self.W, i)
-            filtered_terms.append(pgf.filt(X[i]))
-        term_stack = np.vstack(filtered_terms)
+            filtered_terms.append(pgf.filt(X[i-1].T).T)
+        term_stack = np.concatenate(filtered_terms, axis=2)
 
         # weight terms using coefficients and calculate sum
-        weighted_terms = np.reshape(self.hs, (-1, 1, 1)) * term_stack
-        predictions = np.sum(weighted_terms, axis=0)
-        return predictions
+        weighted_terms = np.reshape(self.hs, (1, 1, -1)) * term_stack
+        predictions = np.sum(weighted_terms, axis=2)
+        return predictions  # T x N
 
     def _coef_loss_function(self, hs):
         """
@@ -245,7 +248,7 @@ class GraphAR:
             float: value of loss at given iteration 
         """
         # update weights
-        self.hs = hs.reshape(self.P+1)
+        self.hs = hs.reshape(self.M)
 
         # calculate MSE for each time
         MSE_term = np.linalg.norm(self.y-self.predict_with_filter_coefs(self.X), ord=2, axis=1)**2
