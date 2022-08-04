@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from signals.filters import PolynomialGraphFilter
 from signals.graph_shift_operators import GraphShiftOperator
+from datasets.graph_processes.graph_processes import GraphPureAR
 from scipy.optimize import minimize
+
+# TODO: make graphAR class flexible to different types of AR model
 
 class GraphAR:
     """autoregressive model using graph filtering
@@ -33,6 +36,7 @@ class GraphAR:
         self.y = y  # labels MxN
         self.N = N  # number of nodes in graph
         self.P = P  # order of graph filter
+        self.M = P*(P+3)/2 # number of filter coefficients
         self.alpha = alpha  # int weighting of time-steps [0, 1]
         self.mu = mu  # vector of l1 regularisation strengths of size P
         self.gamma = gamma  # float value for regularisation on commutivity term
@@ -48,11 +52,11 @@ class GraphAR:
         if init_type == 'rand':
             self.beta = np.random.rand(P, N, N)  # initialise filter model parameters
             self.W = np.random.rand(N, N)  # initialise the learnt GSO
-            self.hs = np.random.rand(int(P+1*P))  # initialise the learnt filter coefficients
+            self.hs = np.random.rand(self.M)  # initialise the learnt filter coefficients
         else:
             self.beta = np.zeros(shape=(P, N, N))  # initialise parameters to zeros
             self.W = np.zeros(shape=(N, N))  # initialise the learnt GSO to zeros
-            self.hs = np.zeros(int(P+1*P))  # initialise the learnt filter coefficients
+            self.hs = np.zeros(self.M)  # initialise the learnt filter coefficients
 
         # concatonation method for predictions
         self.concat = concat
@@ -223,9 +227,9 @@ class GraphAR:
             np.array: vector of outputs for given inputs 
         """
         # calculate the graph filtered data
-        pgf = PolynomialGraphFilter(self.W, self.P)
         filtered_terms = []
-        for i in range(X.shape[0]):
+        for i in range(self.P):
+            pgf = PolynomialGraphFilter(self.W, i)
             filtered_terms.append(pgf.filt(X[i]))
         term_stack = np.vstack(filtered_terms)
 
