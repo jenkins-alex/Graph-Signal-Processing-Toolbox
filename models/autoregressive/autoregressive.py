@@ -7,6 +7,8 @@ from signals.graph_shift_operators import GraphShiftOperator
 from datasets.graph_processes.graph_processes import GraphPureAR
 from scipy.optimize import minimize
 
+# TODO: add causal graph model used by J. Mei and J. Moura
+
 # TODO: make graphAR class flexible to different types of AR model
 
 class GraphAR:
@@ -270,7 +272,7 @@ class GraphAR:
 
 class AdaptiveGraphAR:
     
-    def __init__(self, P, N, alpha, mus, gamma, stepsize_filter, stepsize_weight_matrix, stepsize_debiasing):
+    def __init__(self, P, N, alpha, mus, gamma, stepsize_filter, stepsize_weight_matrix, stepsize_debiasing, time_switch_algorithms):
         """
         Adaptive vertex-time graph auto-regressive model, as seen in, https://arxiv.org/abs/2003.05729.
         Here the graph shift operator and the graph filter coefficients are learnt from data.
@@ -278,12 +280,13 @@ class AdaptiveGraphAR:
         Args:
             P (int): Number of auto-regressive terms.
             N (int): Number of vertices of graph / sensor channels.
-            alpha (float): Sample weighting for each time-step [0, 1].
+            alpha (float): Sample weighting / forgetting factor for each time-step [0, 1].
             mus (np.array): Vector of l1 regularisation strengths (P).
             gamma (float): Regularisation strength for commutivity term.
             stepsize_filter (float): Step-size for gradient based projection updates of filter learning.
             stepsize_weight_matrix (float): Step-size for gradient based projection updates of weight matrix learning.
             stepsize_debiasing (float): Step-size for gradient based projection update of debiasing W and h learning.
+            time_switch_algorithms (int): Time-step to switch from algorithm 1 (learning) to algorithm 2 (debiasing)
         """
         # initialise attributes
         self.P = P  # number of filter terms
@@ -291,9 +294,10 @@ class AdaptiveGraphAR:
         self.alpha = alpha  # regularisation
         self.mus = mus  # regularisation for sparsity
         self.gamma = gamma  # regularisation for commutativity
-        self.stepsize_filter = stepsize_filter  # stepsize for adaptive updates
-        self.stepsize_weight_matrix = stepsize_weight_matrix
-        self.stepsize_debiasing = stepsize_debiasing
+        self.stepsize_filter = stepsize_filter  # stepsize for learning filter
+        self.stepsize_weight_matrix = stepsize_weight_matrix  # stepsize for learning graph topology
+        self.stepsize_debiasing = stepsize_debiasing  # stepsize for debiasing algorithm
+        self.time_switch_algorithms = time_switch_algorithms
         
         # initialise learnable parameters
         self.beta_pos = np.zeros(shape=(N, N*P))
@@ -356,9 +360,22 @@ class AdaptiveGraphAR:
         Returns:
             np.array: learnt graph filters at each time-step
         """
+        self.identify_graph_topology(X, y)
+        self.debias_graph_topology(X, y)
+
+    def identify_graph_topology(self, X, y):
+        """
+        Learn the graph filters and identify the topology of graph using algorithm 1 
+        from https://arxiv.org/abs/2003.05729, by a series of gradient projection 
+        updates given in the paper's section 4.
+
+        Args:
+            X (np.array): input auto-regressive features for the model
+            y (np.array): output / training labels over time.
+        """
         filters = []
         weight_matrices = []
-        for t in tqdm(range(0, X.shape[1])):
+        for t in tqdm(range(0, self.time_switch_algorithms)):
             
             # solving for the graph filter
             xPt = X[:, t, :].flatten()
@@ -403,14 +420,51 @@ class AdaptiveGraphAR:
             self.W_pos[self.W_pos < 0] = 0  # keep positive elements only
             self.W_neg = self.W_neg - self.stepsize_b * (self.mus[0] * np.eye(self.N, self.N) - self.V)
             self.W_neg[self.W_neg < 0] = 0  # keep positive elements only
-            self.W = self.W_pos - self.W_neg
+            self.W = np.subtract(self.W_pos, self.W_neg)
             weight_matrices.append(self.W)
 
         filters = np.stack(filters)  # T x N x NP
         all_weight_matrices = np.stack(weight_matrices)  # TxNxN
         self.filters = filters
         self.all_weight_matrices = all_weight_matrices
-        return filters, all_weight_matrices
+        
+    def debias_graph_topology(self, X, y):
+        """
+        Debias the learnt graph topology and identify filter coefficients using algorithm 1 
+        from https://arxiv.org/abs/2003.05729, by a series of gradient projection 
+        updates given in the paper's section 4.
+
+        Args:
+            X (np.array): input auto-regressive features for the model
+            y (np.array): output / training labels over time.
+        """
+        # debias learnt graph topology for the remaining epochs available
+        for t in tqdm(range(self.time_switch_algorithms, X.shape[1])):
+
+            # recover weight matrix
+            xPt = X[:, t, :].flatten()
+            xPt = xPt.reshape(xPt.shape[0], 1)            
+            self.r_matrix = self.alpha * self.r_matrix + np.dot(xPt, xPt.T)
+            yt = y[t, :]
+            yt = yt.reshape(yt.shape[0], 1)
+            self.p_matrix = self.alpha * self.p_matrix + np.dot(yt, xPt.T)
+            
+            # only optimise the non-zero elements of filter (beta) and W
+            self.G = np.matmul(self.beta, self.r_matrix) - self.p_matrix
+            
+            # make elements of G zero where filter is zero and power of W are zero
+            g_mask = (self.beta == 0)
+            for k in range(0, self.P):
+                filter_zeros = g_mask[:, k*self.N:(k+1)*self.N]
+                gso = GraphShiftOperator(self.W)
+                zeros_w = (gso.power(k+1) == 0)
+                g_mask[:, k*self.N:(k+1)*self.N] = filter_zeros * zeros_w
+            self.G[g_mask] = 0  # mask G values
+            
+            # update filter and estimate weights
+            self.beta = self.beta - np.matmul(self.G, np.kron(self.A, np.eye(self.N, self.N)))
+            self.W = self.beta[:, :self.N]  # approximate W as debiased first graph filter
+
 
     def commutivity_loss_term(self, p):
         """
