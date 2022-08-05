@@ -270,7 +270,7 @@ class GraphAR:
 
 class AdaptiveGraphAR:
     
-    def __init__(self, P, N, alpha, mus, gamma, stepsize):
+    def __init__(self, P, N, alpha, mus, gamma, stepsize_filter, stepsize_weight_matrix, stepsize_debiasing):
         """
         Adaptive vertex-time graph auto-regressive model, as seen in, https://arxiv.org/abs/2003.05729.
         Here the graph shift operator and the graph filter coefficients are learnt from data.
@@ -281,7 +281,9 @@ class AdaptiveGraphAR:
             alpha (float): Sample weighting for each time-step [0, 1].
             mus (np.array): Vector of l1 regularisation strengths (P).
             gamma (float): Regularisation strength for commutivity term.
-            stepsize (float): Step-size for gradient based projection updates.
+            stepsize_filter (float): Step-size for gradient based projection updates of filter learning.
+            stepsize_weight_matrix (float): Step-size for gradient based projection updates of weight matrix learning.
+            stepsize_debiasing (float): Step-size for gradient based projection update of debiasing W and h learning.
         """
         # initialise attributes
         self.P = P  # number of filter terms
@@ -289,16 +291,23 @@ class AdaptiveGraphAR:
         self.alpha = alpha  # regularisation
         self.mus = mus  # regularisation for sparsity
         self.gamma = gamma  # regularisation for commutativity
-        self.stepsize = stepsize  # stepsize for adaptive updates
+        self.stepsize_filter = stepsize_filter  # stepsize for adaptive updates
+        self.stepsize_weight_matrix = stepsize_weight_matrix
+        self.stepsize_debiasing = stepsize_debiasing
         
         # initialise learnable parameters
         self.beta_pos = np.zeros(shape=(N, N*P))
         self.beta_neg = np.zeros(shape=(N, N*P))
         self.p_matrix = np.zeros(shape=(N, N*P))
         self.r_matrix = np.zeros(shape=(N*P, N*P))
-        
+        self.W = np.zeros(shape=(N, N))
+        self.W_pos = np.zeros(shape=(N, N))
+        self.W_neg = np.zeros(shape=(N, N))
+
         # matrix of stepsizes
-        self.A = self.stepsize * np.eye(P)
+        self.A = self.stepsize_filter * np.eye(P)
+        self.stepsize_b = self.stepsize_weight_matrix
+        self.stepsize_rho = self.stepsize_debiasing
         
         # put mus in matrix 
         self.M = np.array([self.mus[p] * np.ones(shape=(self.N, self.N)) for p in range(0, self.P)])
@@ -348,8 +357,10 @@ class AdaptiveGraphAR:
             np.array: learnt graph filters at each time-step
         """
         filters = []
+        weight_matrices = []
         for t in tqdm(range(0, X.shape[1])):
             
+            # solving for the graph filter
             xPt = X[:, t, :].flatten()
             xPt = xPt.reshape(xPt.shape[0], 1)            
             self.r_matrix = self.alpha * self.r_matrix + np.dot(xPt, xPt.T)
@@ -357,33 +368,49 @@ class AdaptiveGraphAR:
             yt = yt.reshape(yt.shape[0], 1)
             self.p_matrix = self.alpha * self.p_matrix + np.dot(yt, xPt.T)
             
-            # learnable filter terms NxNP
+                # learnable filter terms NxNP
             self.beta = np.subtract(self.beta_pos, self.beta_neg)
 
-            # commutivity terms NxNP
+                # commutivity terms NxNP
             self.Q = np.array([self.commutivity_loss_term(p) for p in range(0, self.P)])  # PxNxN
             self.Q = self.Q.T.reshape(self.Q.shape[-1], -1)  # make shape NxNP
             
-            # TODO: add smoothness terms NxNP
-            
-            # compute G
+                # compute G
             self.G = np.matmul(self.beta, self.r_matrix) - (self.p_matrix - self.gamma * self.Q)  # NxNP
             
-            # update learnable terms as a gradient projection
+                # calculate A
             self.beta_pos = self.beta_pos - np.matmul((self.M+self.G), np.kron(self.A, np.eye(self.N)))
             self.beta_neg = self.beta_neg - np.matmul((self.M-self.G), np.kron(self.A, np.eye(self.N)))
-
-            # keep only positive parts of the matrices
             self.beta_pos[self.beta_pos < 0] = 0
             self.beta_neg[self.beta_neg < 0] = 0
-
-            # update parameter matrix
             self.beta = np.subtract(self.beta_pos, self.beta_neg)
             filters.append(self.beta)
             
+            # estimating the weight matrix
+                # compute S
+            self.S = np.zeros(shape=(self.N, self.N))
+            for k in range(1, self.P):
+                filter_k_t = self.beta[:, k*self.N:(k+1)*self.N]
+                commute_w_beta = self.commute_loss(self.W, filter_k_t)
+                self.S += np.matmul(commute_w_beta, filter_k_t.T) - np.matmul(filter_k_t.T, commute_w_beta)
+
+                # compute V
+            first_graph_filter = self.beta[:, :self.N]
+            self.V = self.W - (first_graph_filter - self.gamma * self.S)
+
+                # compute weight matrix
+            self.W_pos = self.W_pos - self.stepsize_b * (self.mus[0] * np.eye(self.N, self.N) + self.V)
+            self.W_pos[self.W_pos < 0] = 0  # keep positive elements only
+            self.W_neg = self.W_neg - self.stepsize_b * (self.mus[0] * np.eye(self.N, self.N) - self.V)
+            self.W_neg[self.W_neg < 0] = 0  # keep positive elements only
+            self.W = self.W_pos - self.W_neg
+            weight_matrices.append(self.W)
+
         filters = np.stack(filters)  # T x N x NP
+        all_weight_matrices = np.stack(weight_matrices)  # TxNxN
         self.filters = filters
-        return filters
+        self.all_weight_matrices = all_weight_matrices
+        return filters, all_weight_matrices
 
     def commutivity_loss_term(self, p):
         """
@@ -405,7 +432,7 @@ class AdaptiveGraphAR:
             second_term = np.matmul(beta_k.T, self.commute_loss(beta_p, beta_k))
             q_terms.append(first_term - second_term)
         return np.stack(q_terms).sum(axis=0)
-        
+
     def commute_loss(self, m1, m2):
         """
         the commutivity penalty for two matrices, m1 and m2.
