@@ -503,10 +503,27 @@ class CausalGraphProcess(GraphAR):
     Causal Modeling of Unstructured Data by Mei and Moura 2017: 
     https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=7763882
     """
-    def __init__(self, X, y, N, P, alpha, mu, zeta, gamma=None, init_type='rand'):
+    def __init__(self, X, y, N, P, alpha, mu, zeta, gamma=None, init_type='rand', skip_step_2=True):
         super().__init__(X, y, N, P, alpha, mu, zeta, gamma, init_type)
-        # TODO: fix coefficients for first graph filter
+        self.skip_step_2 = skip_step_2
     
+    def fit(self, method='BFGS', max_iter=1):
+        """ learn parameters of the graph auto-regression model
+
+        Args:
+            method (str, optional): Optimizer to use. Defaults to 'BFGS'.
+            max_iter (int, optional): Max iterations to use. Defaults to 1.
+        """
+        print('(1/3) Learning graph filters from data...')
+        self._learn_filter(method, max_iter)
+        print('(2/3) Learning graph shift operator from graph filters...')
+        if self.skip_step_2:
+            self.W = self.beta[0]
+        else:
+            self._learn_gso(method, max_iter)
+        print('(3/3) Learning graph filter coefficients from data...')
+        self._learn_filter_coefs(method, max_iter)
+        
     def _learn_filter(self, method, max_iter):
         """learn filters one-by-one using block coordinate descent
 
