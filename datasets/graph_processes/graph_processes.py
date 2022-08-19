@@ -146,8 +146,14 @@ class GraphPureAR(GraphAR):
     Args:
         GraphAR (object): abstract base class for graph AR process
     """
-    def __init__(self, weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients):
+    def __init__(self, weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients, set_first_two_filter_coefficients=True):
         super().__init__(weight_matrix, process_length, set_seed, auto_reg_terms, filter_coefficients)
+        self.set_first_two_filter_coefficients = set_first_two_filter_coefficients
+        if self.set_first_two_filter_coefficients:
+            # enforces first graph filter = graph shift operator
+            # enables identifiability of graph shift operator from data
+            self.filter_coefficients[0] = 0
+            self.filter_coefficients[1] = 1
 
     def graph_process(self, data):
         """definition of graph process to be used for simulation

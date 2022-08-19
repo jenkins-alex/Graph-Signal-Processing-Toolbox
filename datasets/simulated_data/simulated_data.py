@@ -34,9 +34,35 @@ def create_random_matrix_as_in_paper(N):
     return W
     
 def create_random_hs_as_in_paper(P):
-    # as in Methods of Adaptive Signal Processing on Graphs Using Vertex-Time Autoregressive Models
-    # TODO: implement this function
-    return None
+    """create random graph filter coefficients for simulation using method
+    from the paper of Signal Processing on Graphs: Causal Modeling of
+    Unstructured Data by Mei and Moura 2017:
+    https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=7763882
+
+    Args:
+        P (int): number of auto-regressive terms
+
+    Returns:
+        np.array: filter coefficients to be used
+    """
+    M = int(P * (P+3) / 2)  # total number of filter coefficients
+    
+    # generate coefficients sparsely and from a mixture of uniform distributions
+    filter_coefficients = 0.5 * np.random.uniform(-1, -0.45, M) + 0.5 * np.random.uniform(0.45, 1, M)
+    filter_coefficients /= 1.5  # normalisation
+    
+    # multiply filter coefficients by 2^(i+j) where i refers to graph filter number, j to graph filter term
+    # power_term_i_plus_j = []
+    # for i in range(2, P+1):
+    #     for j in range(0, i+1):
+    #         power_term_i_plus_j.append(i+j)
+    # power_term_i_plus_j = np.array(power_term_i_plus_j)
+    # filter_coefficients[2:] /= 2**power_term_i_plus_j
+
+    # set first two filter coefficients to avoid identifiability problems
+    filter_coefficients[0] = 0
+    filter_coefficients[1] = 1
+    return filter_coefficients
     
 def arbitrary_graph_pure_AR(N, auto_reg_terms, process_length):
 

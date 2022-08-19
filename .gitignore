@@ -6,3 +6,4 @@ ENV/
 env.bak/
 venv.bak/
 *.pyc
+*.cpython-39.pyc
