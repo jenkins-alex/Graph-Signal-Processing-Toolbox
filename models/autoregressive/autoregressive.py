@@ -516,10 +516,18 @@ class CausalGraphProcess(GraphAR):
         """
         for filter_number in range(0, self.beta.shape[0]):
             print('Learning filter: %s/%s' % (filter_number+1, self.beta.shape[0]))
-            res = minimize(self._filter_loss_function,self.beta,
+            res = minimize(self._filter_loss_function,
+                           self.beta,
                            args=(filter_number),
                            method=method,
                            options={'maxiter': max_iter})
+        print('New sweep for filter 1/3...')
+        filter_number = 0  # update first learnt filter using knowledge from others
+        res = minimize(self._filter_loss_function,
+                self.beta,
+                args=(filter_number),
+                method=method,
+                options={'maxiter': max_iter})
 
     def _filter_loss_function(self, beta, filter_number):
         """

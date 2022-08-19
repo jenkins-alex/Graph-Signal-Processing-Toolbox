@@ -34,10 +34,14 @@ def test_adaptive():
     plt.show()
 
 def test_cgp():
-    N = 12
+    N = 10
     P = 3
-    data, generator = arbitrary_graph_pure_AR(N, P, 1000)
-    
+    data, generator = arbitrary_graph_pure_AR(N, P, 500)
+    print(generator.filter_coefficients)
+    data = data[50:]  # use only data after initial burn in period
+    plt.plot(data)
+    plt.show()
+
     alpha = 1
     mus = 3
     gamma = 10
@@ -45,7 +49,7 @@ def test_cgp():
     X = extract_features(data, P)
     y = data
     gar = CausalGraphProcess(X, y, N, P, alpha, mus, zeta, gamma=5, init_type='rand')
-    gar.fit(max_iter=10)
+    gar.fit(max_iter=50)
     plt.imshow(generator.weight_matrix)
     plt.show()
     plt.imshow(gar.W)
