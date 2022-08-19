@@ -7,10 +7,6 @@ from signals.graph_shift_operators import GraphShiftOperator
 from datasets.graph_processes.graph_processes import GraphPureAR
 from scipy.optimize import minimize
 
-# TODO: add causal graph model used by J. Mei and J. Moura
-
-# TODO: make graphAR class flexible to different types of AR model
-
 class GraphAR:
     """autoregressive model using graph filtering
     """
@@ -499,3 +495,104 @@ class AdaptiveGraphAR:
             np.array: commutivity penalties
         """
         return np.matmul(m1, m2) - np.matmul(m2, m1) 
+
+
+class CausalGraphProcess(GraphAR):
+    """
+    Causal Graph Process (CGP) as introduced in the paper of Signal Processing on Graphs:
+    Causal Modeling of Unstructured Data by Mei and Moura 2017: 
+    https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=7763882
+    """
+    def __init__(self, X, y, N, P, alpha, mu, zeta, gamma=None, init_type='rand'):
+        super().__init__(X, y, N, P, alpha, mu, zeta, gamma, init_type)
+        # TODO: fix coefficients for first graph filter
+    
+    def _learn_filter(self, method, max_iter):
+        """learn filters one-by-one using block coordinate descent
+
+        Args:
+            method (str): optimisation method to use. 
+            max_iter (int): Max iterations to use.
+        """
+        for filter_number in range(0, self.beta.shape[0]):
+            print('Learning filter: %s/%s' % (filter_number+1, self.beta.shape[0]))
+            res = minimize(self._filter_loss_function,self.beta,
+                           args=(filter_number),
+                           method=method,
+                           options={'maxiter': max_iter})
+
+    def _filter_loss_function(self, beta, filter_number):
+        """
+        The loss function for the CGP. Corresponds to equation 9
+        in https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=7763882
+
+        Args:
+            beta (np.array): Learnable weights for each graph filter
+
+        Returns:
+            float: value of loss at given iteration 
+        """
+        
+        # update weights of current filter while keeping others fixed
+        self.beta[filter_number] = beta.reshape(self.P, self.N, self.N)[filter_number]
+        
+        # calculate MSE for each time
+        MSE_term = np.linalg.norm(self.y-self.predict(self.X), ord=2, axis=1)**2
+
+        # sum the MSE over all time-steps
+        powers = np.array([self.y.shape[0] - i for i in range(0, self.y.shape[0])])
+        alphas = np.array([self.alpha] * self.y.shape[0])
+        powers = np.power(alphas, powers)
+        weighted_mses = np.multiply(powers, MSE_term)
+        loss = .5 * np.sum(weighted_mses)
+
+        # add in the sparsity term for the parameters
+        l1_norm = np.linalg.norm(self.beta[0], ord=1)
+        l1_loss = self.mu * l1_norm
+        loss += l1_loss
+        
+        # add in the commutivity term
+        if self.add_commutivity_term:
+            # calculate each combination of multiplied filter terms  
+            arr = np.dot(self.beta, self.beta).reshape(self.P, self.P, self.N, self.N)
+            comm_terms = []
+            for i in range(0, self.P):
+                for j in range(0, self.P):
+                    if i == j:
+                        continue
+                    comm_terms.append(np.linalg.norm(arr[i,j] - arr[j,i], 'fro')**2)
+            loss += self.gamma * np.sum(comm_terms)
+        return loss
+    
+    def _gso_loss_function(self, W):
+        """
+        The loss function for learning the GSO using the pre-trained graph filters. Corresponds to equation 12
+        in https://arxiv.org/abs/2003.05729
+
+        Args:
+            W (np.array): Learnable weights for graph shift operator (NxN)
+
+        Returns:
+            float: value of loss at given iteration 
+        """
+        # update weights
+        self.W = W.reshape(self.N, self.N)
+        
+        # calculate MSE for each time
+        first_graph_filter = self.get_approximate_gso()
+        MSE_term = np.linalg.norm(first_graph_filter-self.W, ord=2, axis=(0,1))**2
+        loss = .5 * MSE_term
+        
+        # add in the sparsity term for the gso
+        l1_norms = np.linalg.norm(self.W, ord=1, axis=(0,1))
+        l1_loss = self.mu * l1_norms
+        loss += l1_loss
+        
+        # add in the commutivity term
+        arr = np.dot(self.beta, self.beta).reshape(self.P, self.P, self.N, self.N)
+        comm_terms = []
+        for i in range(1, self.P):
+            comm_terms.append(np.linalg.norm(self.W - self.beta[i], 'fro')**2)
+        loss += self.gamma * np.sum(comm_terms)
+        print(loss)
+        return loss
