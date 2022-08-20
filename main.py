@@ -41,7 +41,7 @@ def test_cgp():
     process_length = 2000
     burn_in = 500
     set_seed = False
-    mc_repititions = 20
+    mc_repititions = 10
     max_iter = 50
 
     # define weight matrix and filter coefficients for graph process
@@ -78,7 +78,7 @@ def generate_data_and_estimate_adjacency(P, N, process_length, set_seed, burn_in
         X = extract_features(data, P)
         y = data
         gar = CausalGraphProcess(X, y, N, P, alpha, mus, zeta, gamma=gamma, init_type='zeros', skip_step_2=True)
-        gar.fit(max_iter=max_iter)
+        gar.fit(max_iter=max_iter, method='BFGS')
         return gar.W
 
 if __name__ == '__main__':

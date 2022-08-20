@@ -78,7 +78,10 @@ class GraphAR:
             np.array: vector of outputs for given inputs 
         """
         # calculate graph filter terms
-        prediction = np.matmul(self.beta, np.swapaxes(X, 1, 2)).sum(axis=0).T
+        # prediction = np.matmul(self.beta, np.swapaxes(X, 1, 2)).sum(axis=0).T
+        prediction = np.zeros(shape=self.y.shape)
+        for i in range(0, self.P):
+            prediction += np.matmul(self.beta[i], X[i].T).T
         return prediction
     
     def get_approximate_gso(self):
@@ -108,7 +111,7 @@ class GraphAR:
             max_iter (int): Max iterations to use.
         """
         res = minimize(self._filter_loss_function,
-                       self.beta,
+                       self.beta.flatten(),
                        method=method,
                        options={'maxiter': max_iter})
 
@@ -120,7 +123,7 @@ class GraphAR:
             max_iter (int): Max iterations to use.
         """
         res = minimize(self._gso_loss_function,
-                       self.W,
+                       self.W.flatten(),
                        method=method,
                        options={'maxiter': max_iter})
 
@@ -534,14 +537,14 @@ class CausalGraphProcess(GraphAR):
             for filter_number in range(0, self.beta.shape[0]):
                 print('Learning filter: %s/%s' % (filter_number+1, self.beta.shape[0]))
                 res = minimize(self._filter_loss_function,
-                            self.beta,
+                            self.beta.flatten(),
                             args=(filter_number),
                             method=method,
                             options={'maxiter': max_iter})
             print('New sweep for filter 1/3...')
             filter_number = 0  # update first learnt filter using knowledge from others
             res = minimize(self._filter_loss_function,
-                    self.beta,
+                    self.beta.flatten(),
                     args=(filter_number),
                     method=method,
                     options={'maxiter': max_iter})
@@ -549,7 +552,7 @@ class CausalGraphProcess(GraphAR):
             # problem is convex without the commutivity term
             filter_number = None
             res = minimize(self._filter_loss_function,
-                        self.beta,
+                        self.beta.flatten(),
                         args=(filter_number),
                         method=method,
                         options={'maxiter': max_iter})
@@ -598,6 +601,7 @@ class CausalGraphProcess(GraphAR):
                         continue
                     comm_terms.append(np.linalg.norm(arr[i,j] - arr[j,i], 'fro')**2)
             loss += self.gamma * np.sum(comm_terms)
+        print(loss)
         return loss
     
     def _gso_loss_function(self, W):
