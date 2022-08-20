@@ -101,27 +101,27 @@ class GraphAR(SimulatedGraphProcess):
         N = self.weight_matrix.shape[0]
 
         # initialise input data
-        initial_data = np.random.normal(np.zeros(N), np.eye(N))
+        initial_data = np.random.normal(np.zeros(N), np.ones(N)) # array size N
 
         # initialise containers
-        outputs = np.zeros(shape=(self.process_length, N, N))  # outputs of graph AR process
-        outputs[0] = initial_data
-        auto_reg_data = np.zeros(shape=(self.auto_reg_terms, N, N))  # input data to AR graph process
+        outputs = np.zeros(shape=(N, self.process_length))  # outputs of graph AR process
+        outputs[:, 0] = initial_data
+        auto_reg_data = np.zeros(shape=(self.auto_reg_terms, N))  # input data to AR graph process
         auto_reg_data[0] = initial_data
 
         # simulation
         # TODO: vectorise simulated data curation
         for i in range(1, self.process_length):
             # get data at next time-step 
-            output = self.graph_process(auto_reg_data) + np.random.normal(np.zeros(N), np.eye(N)) # NxN
-            outputs[i] = output  # save in container
+            output = self.graph_process(auto_reg_data) + np.random.normal(np.zeros(N), np.ones(N)) # size N
+            outputs[:, i] = output  # save in container
 
             # update data for AR
             auto_reg_data = np.roll(auto_reg_data, 1, axis=0)  # roll data back 1 step in time
             auto_reg_data[0] = output # add output as new time step
 
         # return converted output as T x N array
-        return outputs.sum(axis=1)
+        return outputs.T
 
     def initialise_filter_coefficients(self, filter_coefficients):
         """randomly and sparsely initialise filter coefficients if not provided
@@ -155,27 +155,25 @@ class GraphPureAR(GraphAR):
             self.filter_coefficients[0] = 0
             self.filter_coefficients[1] = 1
 
-    def graph_process(self, data):
-        """definition of graph process to be used for simulation
+    def graph_process(self, X):
+        """predict the next time-step using learnt GSO and filter coefficients
 
         Args:
-            data (np.array): PxNxN where P is the number of auto reg terms, 
-                N is number of nodes
-
+            X (np.array): input features # P x N
         Returns:
-            np.array: NxN numpy array containing outputs at next time-step
+            np.array: vector of outputs for given inputs 
         """
+        # calculate the graph filtered data
         filtered_terms = []
-        # TODO: vectorise?
         for i in range(1, self.auto_reg_terms+1):
             pgf = PolynomialGraphFilter(self.weight_matrix, i)
-            filtered_terms.append(pgf.filt(data[i-1]))
-        term_stack = np.vstack(filtered_terms)
+            filtered_terms.append(pgf.filt(X[i-1]).T)
+        term_stack = np.concatenate(filtered_terms, axis=1)
 
         # weight terms using coefficients and calculate sum
-        weighted_terms = np.reshape(self.filter_coefficients, (-1, 1, 1)) * term_stack
-        predictions = np.sum(weighted_terms, axis=0)
-        return predictions
+        weighted_terms = np.reshape(self.filter_coefficients, (1, -1)) * term_stack
+        predictions = np.sum(weighted_terms, axis=1)
+        return predictions  # size N
 
 
 class GraphARMA(GraphAR):
