@@ -531,6 +531,7 @@ class CausalGraphProcess(GraphAR):
             method (str): optimisation method to use. 
             max_iter (int): Max iterations to use.
         """
+        # TODO: implement gradient projection for sparse reconstruction optimisation method
         if self.add_commutivity_term:
             # adding commutivity term makes problem multi-convex
             # learn filters one-by-one using block coordinate descent
